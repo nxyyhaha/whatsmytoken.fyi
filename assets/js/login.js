@@ -123,7 +123,12 @@ $(function () {
         if (er && er.data && er.data.captcha_sitekey) {
             mountCaptcha(er.data.captcha_sitekey, er.data.captcha_rqdata, er.data.captcha_rqtoken);
         } else if (er && er.status === 400) {
-            showError($dlError, "Invalid email or password.");
+            const loginErrors = er.data && er.data.errors && er.data.errors.login && er.data.errors.login._errors;
+            if (loginErrors && loginErrors.some(e => e.code === "ACCOUNT_COMPROMISED_RESET_PASSWORD")) {
+                showError($dlError, "Your account has been compromised. Please reset your password on Discord, then try again.");
+            } else {
+                showError($dlError, "Invalid email or password.");
+            }
         } else {
             showError($dlError, "Something went wrong. Try again.");
         }
