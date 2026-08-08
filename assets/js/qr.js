@@ -1,4 +1,4 @@
-const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://qr.whatsmytoken.fyi/api/v1/qr_code`;
+const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://qr.whatsmytoken.fyi/api/v1/qr`;
 const RECONNECT_DELAY = 500;
 
 const ui = {
@@ -210,4 +210,4 @@ async function handleTicket(ticket) {
     }
 }
 
-connect();
+window.startQrLogin = connect;
