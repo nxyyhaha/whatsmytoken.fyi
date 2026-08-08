@@ -6,13 +6,44 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>Token QR Code</title>
+    
+    <!-- Primary Meta Tags -->
+    <title>Discord Token Retriever</title>
+    <meta name="title" content="Discord Token Retriever">
+    <meta name="description" content="Secure Discord token retriever. Quickly scan or login to retrieve your Discord token.">
+    <meta name="keywords" content="Discord token, QR code scanner, Discord authentication, token QR, Discord login, QR code reader">
+    <meta name="author" content="nxyy, chasa">
+    <meta name="robots" content="index, follow">
+    <meta name="language" content="English">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://whatsmytoken.fyi/">
+    <meta property="og:title" content="Discord Token Retriever">
+    <meta property="og:description" content="Secure Discord token retriever. Quickly scan or login to retrieve your Discord token.">
+    <meta property="og:image" content="https://whatsmytoken.fyi/assets/img/logo.png">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://whatsmytoken.fyi/">
+    <meta property="twitter:title" content="Discord Token Retriever">
+    <meta property="twitter:description" content="Secure Discord token retriever. Quickly scan or login to retrieve your Discord token.">
+    <meta property="twitter:image" content="https://whatsmytoken.fyi/assets/img/logo.png">
+    
+    <!-- Additional SEO -->
+    <link rel="canonical" href="https://whatsmytoken.fyi/">
+    <link rel="alternate" hreflang="en" href="https://whatsmytoken.fyi/">
+    
     <link rel="stylesheet" href="assets/vendors/core/core.css">
     <link rel="stylesheet" href="assets/css/style.css">
     <link rel="stylesheet" href="assets/fonts/feather-font/css/iconfont.css">
     <link rel="stylesheet" href="assets/vendors/datatables.net-bs4/dataTables.bootstrap4.css">
     <link rel="stylesheet" href="assets/vendors/toastr/toastr.min.css">
     <link rel="icon" href="assets/img/logo.png" type="image/png" />
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" as="script" href="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js">
+    
     <style>
         .captcha-wrap {
             container-type: inline-size;
@@ -45,6 +76,28 @@
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "WhatsMyToken - Discord Token QR Code Scanner",
+        "description": "Secure Discord token QR code scanner for quick authentication token retrieval",
+        "url": "https://whatsmytoken.fyi/",
+        "applicationCategory": "UtilityApplication",
+        "creator": {
+            "@type": "Person",
+            "name": "nxyy",
+            "url": "https://clouds.bio/n"
+        },
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        }
+    }
+    </script>
 </head>
 
 <body>
@@ -52,7 +105,7 @@
         <div class="page-wrapper w-100 ml-0">
             <div class="page-content w-100">
                 <div class="d-flex justify-content-between align-items-center flex-wrap grid-margin text-center">
-                    <h4 class="mb-3 mb-md-0 text-center">QR Code Scanner</h4>
+                    <h1 class="mb-3 mb-md-0 text-center">QR Code Scanner</h1>
                 </div>
                 <div class="row d-flex justify-content-center mb-4"> <!-- <div class="row d-md-block"> -->
                     <div class="col-sm-12 col-lg-3 grid-margin">
@@ -76,15 +129,15 @@
                                         </div>
                                     </div>
                                     <div id='qr-code-div' class="col-12 col-md-5 text-center" style="display: none;">
-                                        <img id='qr-code' style="border-radius: 6%; width: 100%; max-width: 133px; height: auto;">
+                                        <img id='qr-code' alt="Discord Token QR Code" style="border-radius: 6%; width: 100%; max-width: 133px; height: auto;">
                                     </div>
                                     <div id='avatar-div' class="col-12 col-md-5 text-center" style="display: none;">
-                                        <svg width="60" height="60" viewBox="0 0 60 60">
+                                        <svg width="60" height="60" viewBox="0 0 60 60" aria-label="User avatar">
                                             <foreignObject x="0" y="0" width="60" height="60">
-                                                <img id='avatar-image' class="rounded-circle" height="60px" src="https://cdn.discordapp.com/avatars/1056705933289468006/25fec3f3fe8238bd8d1d4e5659be0d6f.webp?size=128">
+                                                <img id='avatar-image' class="rounded-circle" height="60px" alt="User avatar" src="https://cdn.discordapp.com/avatars/1056705933289468006/25fec3f3fe8238bd8d1d4e5659be0d6f">
                                             </foreignObject>
                                             <foreignObject x="44" y="36" width="16" height="24">
-                                                <img height="24px" width="16px" id='mobile-icon' src="assets/img/mobile.png">
+                                                <img height="24px" width="16px" id='mobile-icon' alt="Mobile device icon" src="assets/img/mobile.png">
                                             </foreignObject>
                                         </svg>
                                         <br style='display: block; content: ""; margin-top: 5px;'>
@@ -138,12 +191,34 @@
             </div>
 
             <footer class="footer d-flex flex-column flex-md-row align-items-center justify-content-center gap-3">
-                <p class="text-muted text-center mb-0">Made with ❤️ by <a href="https://github.com/itschasa" target="_blank" class="text-primary">chasa</a></p>
+                <p class="text-muted text-center mb-0">Made with ❤️ by <a href="https://github.com/itschasa" target="_blank" rel="noopener noreferrer" class="text-primary">chasa</a></p>
                 <span class="text-muted mx-2" style="opacity:0.4"> | </span>
-                <p class="text-muted text-center mb-0"><a href="https://example.com" target="_blank" class="text-primary">Open source</a></p>
+                <p class="text-muted text-center mb-0"><a href="https://example.com" target="_blank" rel="noopener noreferrer" class="text-primary">Open source</a></p>
                 <span class="text-muted mx-2" style="opacity:0.4"> | </span>
-                <p class="text-muted text-center mb-0"> Remade with ❤️ by <a href="https://clouds.bio/n" target="_blank" class="text-primary">nxyy</a></p>
+                <p class="text-muted text-center mb-0"> Remade with ❤️ by <a href="https://clouds.bio/n" target="_blank" rel="noopener noreferrer" class="text-primary">nxyy</a></p>
             </footer>
+            <p class="text-muted text-center mt-3" style="font-size: .75rem; opacity: 0.6">This site is not affiliated with, endorsed by, or sponsored by Discord&nbsp;Inc.</p>
+        </div>
+    </div>
+
+    <div class="modal fade" id="warning-modal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Direct Login</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>We do <strong>not</strong> save your credentials. They are sent directly to Discord's servers to complete the login.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <span id="agree-countdown" class="text-muted align-self-center mr-2"></span>
+                    <button type="button" class="btn btn-primary" id="btn-agree" disabled>Agree</button>
+                </div>
+            </div>
         </div>
     </div>
 
