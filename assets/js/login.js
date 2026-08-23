@@ -17,6 +17,10 @@ $(function () {
     const $btnAgree = $("#btn-agree");
     const $countdown = $("#agree-countdown");
     const $warningModal = $("#warning-modal");
+    const $tokenDiv = $("#token-div");
+    const $tokenValue = $("#token-value");
+    const $btnCopyToken = $("#btn-copy-token");
+    const $copyStatus = $("#copy-status");
 
     let agreeTimer = null;
     let agreed = false;
@@ -31,6 +35,7 @@ $(function () {
         $("#scan-info").hide();
         $directDiv.hide();
         $mfaDiv.hide();
+        $tokenDiv.hide();
         $dlCaptcha.html("");
         $choice.show();
     }
@@ -39,14 +44,33 @@ $(function () {
         $el.text(msg).show();
     }
 
-    function showToken(token) {
-        toastr.success("Logged in!");
-        setTimeout(() => prompt("Here is your token!", token), 500);
+    function toast(msg, type) {
+        if (type === "warning") {
+            toastr.warning(msg);
+        } else {
+            toastr.info(msg);
+        }
     }
 
-    $("#btn-qr").on("click", () => {
+    function showToken(token) {
         $choice.hide();
-        window.startQrLogin();
+        $directDiv.hide();
+        $mfaDiv.hide();
+        $tokenDiv.show();
+        $tokenValue.val(token);
+        $copyStatus.hide();
+        feather.replace();
+    }
+
+    $btnCopyToken.on("click", () => {
+        navigator.clipboard.writeText($tokenValue.val()).then(() => {
+            $copyStatus.show();
+            setTimeout(() => $copyStatus.hide(), 2000);
+        });
+    });
+
+    $("#btn-qr").on("click", () => {
+        toast("QR login is not available due to Discord breaking it.", "warning");
     });
 
     $("#btn-direct").on("click", () => {
@@ -86,12 +110,16 @@ $(function () {
         const payload = {
             login: $dlEmail.val().trim(),
             password: $dlPassword.val(),
+            undelete: true,
         };
         if (captchaKey) {
             payload.captcha_key = captchaKey;
             payload.captcha_rqtoken = captchaRqtoken;
         }
-        const r = await axios.post("https://qr.whatsmytoken.fyi/api/v1/auth/login", payload);
+        const r = await axios.post(
+            "https://qr.whatsmytoken.fyi/api/v1/auth/login",
+            payload,
+        );
         if (r.data.token) {
             showToken(r.data.token);
         } else if (r.data.mfa) {
@@ -102,30 +130,49 @@ $(function () {
 
     function mountCaptcha(sitekey, rqdata, rqtoken) {
         $dlCaptcha.html(`
-            <div class="captcha-wrap">
-                <h-captcha id="signupCaptcha" site-key="${sitekey}"
-                    theme="dark" size="normal" rqdata="${rqdata}"
-                    tabindex="0"></h-captcha>
-            </div>
+            <div id="dl-captcha-box"></div>
             <br>
             <span>Complete the captcha to continue.</span>`);
-        document.getElementById("signupCaptcha").addEventListener("verified", async (e) => {
-            try {
-                await doLogin(e.token, rqtoken);
-            } catch (err) {
-                handleLoginError(err);
-            }
+        console.log("mounting hcaptcha:", { sitekey, rqdata });
+        hcaptcha.render("dl-captcha-box", {
+            sitekey: sitekey,
+            rqdata: rqdata || undefined,
+            theme: "dark",
+            size: "normal",
+            callback: async (token) => {
+                try {
+                    await doLogin(token, rqtoken);
+                } catch (err) {
+                    handleLoginError(err);
+                }
+            },
         });
     }
 
     function handleLoginError(err) {
         const er = err.response;
         if (er && er.data && er.data.captcha_sitekey) {
-            mountCaptcha(er.data.captcha_sitekey, er.data.captcha_rqdata, er.data.captcha_rqtoken);
+            mountCaptcha(
+                er.data.captcha_sitekey,
+                er.data.captcha_rqdata,
+                er.data.captcha_rqtoken,
+            );
         } else if (er && er.status === 400) {
-            const loginErrors = er.data && er.data.errors && er.data.errors.login && er.data.errors.login._errors;
-            if (loginErrors && loginErrors.some(e => e.code === "ACCOUNT_COMPROMISED_RESET_PASSWORD")) {
-                showError($dlError, "Your account has been compromised. Please reset your password on Discord, then try again.");
+            const loginErrors =
+                er.data &&
+                er.data.errors &&
+                er.data.errors.login &&
+                er.data.errors.login._errors;
+            if (
+                loginErrors &&
+                loginErrors.some(
+                    (e) => e.code === "ACCOUNT_COMPROMISED_RESET_PASSWORD",
+                )
+            ) {
+                showError(
+                    $dlError,
+                    "Your account has been compromised. Please reset your password on Discord, then try again.",
+                );
             } else {
                 showError($dlError, "Invalid email or password.");
             }
@@ -172,15 +219,24 @@ $(function () {
             $mfaCode.prop("placeholder", "6 digit code");
             $mfaCodeWrap.show();
             try {
-                await axios.post("https://qr.whatsmytoken.fyi/api/v1/auth/mfa/sms/send", { ticket: mfa.ticket });
+                await axios.post(
+                    "https://qr.whatsmytoken.fyi/api/v1/auth/mfa/sms/send",
+                    { ticket: mfa.ticket, login_instance_id: mfa.login_instance_id },
+                );
             } catch (err) {
                 $directDiv.show();
-                showError($dlError, "Couldn't send an SMS code. Try QR login instead.");
+                showError(
+                    $dlError,
+                    "Couldn't send an SMS code. Try QR login instead.",
+                );
                 return;
             }
         } else {
             $directDiv.show();
-            showError($dlError, "2FA via Passkey isn't supported here. Try QR login instead.");
+            showError(
+                $dlError,
+                "2FA via Passkey isn't supported here. Try QR login instead.",
+            );
             return;
         }
         $mfaDiv.show();
@@ -196,7 +252,7 @@ $(function () {
         }
         $btnMfa.prop("disabled", true);
         try {
-            const r = await axios.post(verifyUrl, { ticket: mfa.ticket, code });
+            const r = await axios.post(verifyUrl, { ticket: mfa.ticket, login_instance_id: mfa.login_instance_id, code: code });
             showToken(r.data.token);
         } catch (err) {
             showError($mfaError, "Invalid code. Try again.");
@@ -206,13 +262,18 @@ $(function () {
     });
 
     $btnMfaBackup.on("click", async () => {
-        const code = prompt("THIS IS ONLY FOR IF YOU LOST MFA (aka this is for backup codes only).\nEnter a backup code:");
+        const code = prompt(
+            "THIS IS ONLY FOR IF YOU LOST MFA (aka this is for backup codes only).\nEnter a backup code:",
+        );
         if (!code) return;
         $btnMfaBackup.prop("disabled", true);
         try {
-            const r = await axios.post("https://qr.whatsmytoken.fyi/api/v1/auth/mfa/backup", { ticket: mfa.ticket, code: code.trim() });
+            const r = await axios.post(
+                "https://qr.whatsmytoken.fyi/api/v1/auth/mfa/backup",
+                { ticket: mfa.ticket, login_instance_id: mfa.login_instance_id, code: code.trim() },
+            );
             showToken(r.data.token);
-        } catch (err) {
+        } catch ( err) {
             showError($mfaError, "Invalid backup code. Try again.");
         } finally {
             $btnMfaBackup.prop("disabled", false);

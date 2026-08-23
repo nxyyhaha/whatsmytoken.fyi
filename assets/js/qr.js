@@ -1,4 +1,6 @@
-const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://qr.whatsmytoken.fyi/api/v1/qr`;
+const WS_URL = "wss://qr.whatsmytoken.fyi/api/v1/qr";
+const RECONNECT_MAX_DELAY = 8000;
+let reconnectAttempts = 0;
 const RECONNECT_DELAY = 500;
 
 const ui = {
@@ -13,11 +15,19 @@ const ui = {
     discordTag: $("#discord-tag"),
     scanInfo: $("#scan-info"),
     captchaDiv: $("#captcha-div"),
+    stuckWrap: $("#stuck-wrap"),
+    remoteAuthLink: $("#remote-auth-link"),
+    remoteAuthUrl: $("#remote-auth-url"),
+    tokenDiv: $("#token-div"),
+    tokenValue: $("#token-value"),
+    btnCopyToken: $("#btn-copy-token"),
+    copyStatus: $("#copy-status"),
 };
 
 let ws = null;
 let reconnectTimer = null;
 let shouldReconnect = true;
+let remoteAuthFingerprint = null;
 
 function showLoading() {
     ui.loading.show();
@@ -25,6 +35,8 @@ function showLoading() {
     ui.avatarDiv.hide();
     ui.captchaDiv.hide();
     ui.scanInfo.show();
+    ui.stuckWrap.hide();
+    ui.remoteAuthLink.hide();
 }
 
 function showQr() {
@@ -33,6 +45,13 @@ function showQr() {
     ui.avatarDiv.hide();
     ui.captchaDiv.hide();
     ui.scanInfo.show();
+    if (isMobile()) {
+        ui.stuckWrap.show();
+        ui.remoteAuthLink.hide();
+        feather.replace();
+    } else {
+        ui.stuckWrap.hide();
+    }
 }
 
 function showAvatar() {
@@ -49,6 +68,7 @@ function showCaptcha() {
     ui.avatarDiv.hide();
     ui.captchaDiv.show();
     ui.scanInfo.hide();
+    ui.tokenDiv.hide();
 }
 
 function showMessage(html) {
@@ -56,7 +76,20 @@ function showMessage(html) {
     ui.qrCodeDiv.hide();
     ui.avatarDiv.hide();
     ui.captchaDiv.hide();
+    ui.tokenDiv.hide();
     ui.scanInfo.html(html).show();
+}
+
+function showToken(token) {
+    ui.loading.hide();
+    ui.qrCodeDiv.hide();
+    ui.avatarDiv.hide();
+    ui.captchaDiv.hide();
+    ui.scanInfo.hide();
+    ui.tokenDiv.show();
+    ui.tokenValue.val(token);
+    ui.copyStatus.hide();
+    feather.replace();
 }
 
 function isRetryable(reason) {
@@ -70,14 +103,23 @@ function resetUi() {
     ui.discordTag.text("");
     ui.mobileIcon.attr("src", "assets/img/mobile.png");
     ui.captchaDiv.html("").hide();
+    ui.stuckWrap.hide();
+    ui.remoteAuthLink.hide();
+    remoteAuthFingerprint = null;
     showLoading();
+}
+
+function isMobile() {
+    return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768 && 'ontouchstart' in window);
 }
 
 function renderQr(url) {
     const qr = qrcode(0, "L");
     qr.addData(url);
     qr.make();
+    ui.qrCode.removeClass("flash")[0].offsetWidth;
     ui.qrCode.attr("src", qr.createDataURL(4, 8));
+    ui.qrCode.addClass("flash");
 }
 
 function sendOp(op, d) {
@@ -133,6 +175,8 @@ async function handleMessage(evt) {
         }
 
         case "qrcode":
+            remoteAuthFingerprint = data.d;
+            ui.remoteAuthUrl.attr("href", data.d);
             renderQr(data.d);
             showQr();
             break;
@@ -158,56 +202,54 @@ async function handleMessage(evt) {
             showAvatar();
             shouldReconnect = false;
             ws.close();
-            setTimeout(() => prompt("Here is your token!", data.d), 500);
+            setTimeout(() => showToken(data.d), 500);
             break;
 
-        case "ticket":
-            await handleTicket(data.d);
+        case "captcha":
+            renderCaptcha(
+                data.sitekey,
+                data.rqdata,
+                data.rqtoken,
+                data.ticket,
+                data.sessionId,
+            );
             break;
     }
 }
 
-async function handleTicket(ticket) {
-    try {
-        const r = await axios.post(
-            "https://discord.com/api/v9/users/@me/remote-auth/login",
-            { ticket },
-        );
-        sendOp("token", r.data.encrypted_token);
-    } catch (err) {
-        const er = err.response;
-        if (er && er.data && er.data.captcha_sitekey) {
-            const rqt = er.data.captcha_rqtoken;
-            ui.captchaDiv.html(`
-                <div class="captcha-wrap">
-                    <h-captcha id="signupCaptcha" site-key="${er.data.captcha_sitekey}"
-                        theme="dark" size="normal" rqdata="${er.data.captcha_rqdata}"
-                        tabindex="0"></h-captcha>
-                </div>
-                <br>
-                <span>Discord added captchas to remote auth, so please complete this.</span>`);
-            showCaptcha();
-            document
-                .getElementById("signupCaptcha")
-                .addEventListener("verified", async (e) => {
-                    try {
-                        const r2 = await axios.post(
-                            "https://discord.com/api/v9/users/@me/remote-auth/login",
-                            {
-                                ticket,
-                                captcha_key: e.token,
-                                captcha_rqtoken: rqt,
-                            },
-                        );
-                        sendOp("token", r2.data.encrypted_token);
-                    } catch (e2) {
-                        console.error(e2);
-                    }
-                });
-        } else {
-            console.error(err);
-        }
-    }
+function renderCaptcha(sitekey, rqdata, rqtoken, ticket, sessionId) {
+    ui.captchaDiv.html(`
+        <div id="captcha-box"></div>
+        <br>
+        <span>Discord added captchas to remote auth, so please complete this.</span>`);
+    showCaptcha();
+    console.log("mounting hcaptcha:", { sitekey, rqdata });
+    hcaptcha.render("captcha-box", {
+        sitekey: sitekey,
+        rqdata: rqdata || undefined,
+        theme: "dark",
+        size: "normal",
+        callback: (token) => {
+            sendOp("captcha_response", {
+                captcha_key: token,
+                captcha_rqtoken: rqtoken,
+                sessionId: sessionId || "",
+                ticket: ticket,
+            });
+        },
+    });
 }
+
+ui.stuckWrap.on("click", "#btn-stuck", () => {
+    ui.remoteAuthLink.toggle();
+    feather.replace();
+});
+
+ui.btnCopyToken.on("click", () => {
+    navigator.clipboard.writeText(ui.tokenValue.val()).then(() => {
+        ui.copyStatus.show();
+        setTimeout(() => ui.copyStatus.hide(), 2000);
+    });
+});
 
 window.startQrLogin = connect;
