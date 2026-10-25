@@ -11,6 +11,7 @@ $(function () {
     const $mfaError = $("#mfa-error");
     const $mfaCodeWrap = $("#mfa-code-wrap");
     const $mfaBackupWrap = $("#mfa-backup-wrap");
+    const $mfaCaptcha = $("#mfa-captcha");
     const $btnLogin = $("#btn-login");
     const $btnMfa = $("#btn-mfa");
     const $btnMfaBackup = $("#btn-mfa-backup");
@@ -25,7 +26,26 @@ $(function () {
     let agreeTimer = null;
     let agreed = false;
     let mfa = null;
-    let verifyUrl = "https://qr.whatsmytoken.fyi/api/v1/auth/mfa/totp";
+    let mfaCaptchaKey = null;
+    let mfaCaptchaRqtoken = null;
+    // Same-origin by default (works on localhost:8787 and in prod).
+    // Override for testing: ?api=http://localhost:8787 or localStorage.api_base.
+    function resolveApiBase() {
+        try {
+            const params = new URLSearchParams(location.search);
+            let override = params.get("api") || localStorage.getItem("api_base");
+            if (override && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(override)) {
+                override = "http://" + override; // tolerate ?api=localhost:8787
+            }
+            if (override) return new URL(override, location.href).origin;
+        } catch (e) {}
+        // file:// has origin "null" — default to local backend.
+        if (!location.host) return "http://localhost:8787";
+        return location.origin;
+    }
+    const API_BASE = resolveApiBase();
+    const api = (p) => `${API_BASE}${p}`;
+    let verifyUrl = api("/api/v1/auth/mfa/totp");
 
     function showChoice() {
         $("#loading-div").hide();
@@ -70,10 +90,13 @@ $(function () {
     });
 
     $("#btn-qr").on("click", () => {
-        toast("QR login is not available due to Discord breaking it.", "warning");
+        $choice.hide();
+        if (typeof window.startQrLogin === "function") window.startQrLogin();
+        else toast("QR script not loaded. Reload and try again.", "warning");
     });
 
     $("#btn-direct").on("click", () => {
+        if (typeof window.stopQrLogin === "function") window.stopQrLogin();
         $choice.hide();
         agreed = false;
         $btnAgree.prop("disabled", true);
@@ -117,7 +140,7 @@ $(function () {
             payload.captcha_rqtoken = captchaRqtoken;
         }
         const r = await axios.post(
-            "https://qr.whatsmytoken.fyi/api/v1/auth/login",
+            api("/api/v1/auth/login"),
             payload,
         );
         if (r.data.token) {
@@ -129,6 +152,11 @@ $(function () {
     }
 
     function mountCaptcha(sitekey, rqdata, rqtoken) {
+        if (typeof hcaptcha === "undefined") {
+            showError($dlError, "Captcha blocked. Disable your adblocker and try again.");
+            return;
+        }
+        try { hcaptcha.reset(); } catch (e) {}
         $dlCaptcha.html(`
             <div id="dl-captcha-box"></div>
             <br>
@@ -203,8 +231,11 @@ $(function () {
         $mfaError.hide();
         $mfaCode.val("");
         $mfaBackupWrap.hide();
+        mfaCaptchaKey = null;
+        mfaCaptchaRqtoken = null;
+        $mfaCaptcha.hide().html("");
         if (mfa.totp) {
-            verifyUrl = "https://qr.whatsmytoken.fyi/api/v1/auth/mfa/totp";
+            verifyUrl = api("/api/v1/auth/mfa/totp");
             $mfaLabel.text("Enter the code from your authenticator app.");
             $mfaCode.prop("placeholder", "6 digit code");
             $mfaCodeWrap.show();
@@ -214,13 +245,13 @@ $(function () {
             $mfaCodeWrap.hide();
             $mfaBackupWrap.show();
         } else if (mfa.sms) {
-            verifyUrl = "https://qr.whatsmytoken.fyi/api/v1/auth/mfa/sms";
+            verifyUrl = api("/api/v1/auth/mfa/sms");
             $mfaLabel.text("Enter the code sent to your phone.");
             $mfaCode.prop("placeholder", "6 digit code");
             $mfaCodeWrap.show();
             try {
                 await axios.post(
-                    "https://qr.whatsmytoken.fyi/api/v1/auth/mfa/sms/send",
+                    api("/api/v1/auth/mfa/sms/send"),
                     { ticket: mfa.ticket, login_instance_id: mfa.login_instance_id },
                 );
             } catch (err) {
@@ -243,6 +274,66 @@ $(function () {
         $mfaCode.trigger("focus");
     }
 
+    function mountMfaCaptcha(sitekey, rqdata, rqtoken) {
+        if (typeof hcaptcha === "undefined") {
+            showError($mfaError, "Discord asked for a captcha but it was blocked. Disable your adblocker and try again.");
+            return;
+        }
+        try { hcaptcha.reset(); } catch (e) {}
+        mfaCaptchaRqtoken = rqtoken || null;
+        $mfaCaptcha.html(`<div id="mfa-captcha-box"></div>`).show();
+        hcaptcha.render("mfa-captcha-box", {
+            sitekey: sitekey,
+            rqdata: rqdata || undefined,
+            theme: "dark",
+            size: "normal",
+            callback: (token) => {
+                mfaCaptchaKey = token;
+                $mfaCaptcha.hide();
+                $btnMfa.trigger("click"); // auto-retry with the solved captcha
+            },
+            "expired-callback": () => { mfaCaptchaKey = null; try { hcaptcha.reset(); } catch (e) {} },
+            "error-callback": () => { mfaCaptchaKey = null; try { hcaptcha.reset(); } catch (e) {} },
+        });
+    }
+
+    // Returns true if the error was a captcha challenge (handled), false otherwise.
+    function handleMfaCaptcha(err) {
+        const d = err && err.response && err.response.data;
+        if (d && d.captcha_sitekey) {
+            mountMfaCaptcha(d.captcha_sitekey, d.captcha_rqdata, d.captcha_rqtoken);
+            return true;
+        }
+        return false;
+    }
+
+    function mfaVerifyPayload(code) {
+        // login_instance_id is REQUIRED — Discord binds the MFA ticket to the
+        // login instance (/auth/login returns it). Omitting it yields 60008
+        // "Invalid two-factor code" even for a correct code.
+        const payload = { ticket: mfa.ticket, code: code };
+        if (mfa.login_instance_id) payload.login_instance_id = mfa.login_instance_id;
+        if (mfaCaptchaKey) {
+            payload.captcha_key = mfaCaptchaKey;
+            if (mfaCaptchaRqtoken) payload.captcha_rqtoken = mfaCaptchaRqtoken;
+        }
+        return payload;
+    }
+
+    function mfaErrorMessage(err, fallback) {
+        const d = err && err.response && err.response.data;
+        if (d && d.message) {
+            // 60008 = Discord genuinely rejected the code. The relay passes
+            // {ticket, code} through untouched, so a correct-secret failure
+            // here is almost always device clock drift (TOTP = 30s windows).
+            if (d.code === 60008) {
+                return "Invalid two-factor code. If your authenticator is right, check your device clock (enable automatic date & time) — codes depend on exact time.";
+            }
+            return d.message;
+        }
+        return fallback;
+    }
+
     $btnMfa.on("click", async () => {
         const code = $mfaCode.val().trim();
         $mfaError.hide();
@@ -252,10 +343,12 @@ $(function () {
         }
         $btnMfa.prop("disabled", true);
         try {
-            const r = await axios.post(verifyUrl, { ticket: mfa.ticket, login_instance_id: mfa.login_instance_id, code: code });
+            const r = await axios.post(verifyUrl, mfaVerifyPayload(code));
             showToken(r.data.token);
         } catch (err) {
-            showError($mfaError, "Invalid code. Try again.");
+            if (!handleMfaCaptcha(err)) {
+                showError($mfaError, mfaErrorMessage(err, "Invalid code. Try again."));
+            }
         } finally {
             $btnMfa.prop("disabled", false);
         }
@@ -269,12 +362,14 @@ $(function () {
         $btnMfaBackup.prop("disabled", true);
         try {
             const r = await axios.post(
-                "https://qr.whatsmytoken.fyi/api/v1/auth/mfa/backup",
-                { ticket: mfa.ticket, login_instance_id: mfa.login_instance_id, code: code.trim() },
+                api("/api/v1/auth/mfa/backup"),
+                mfaVerifyPayload(code.trim()),
             );
             showToken(r.data.token);
-        } catch ( err) {
-            showError($mfaError, "Invalid backup code. Try again.");
+        } catch (err) {
+            if (!handleMfaCaptcha(err)) {
+                showError($mfaError, mfaErrorMessage(err, "Invalid backup code. Try again."));
+            }
         } finally {
             $btnMfaBackup.prop("disabled", false);
         }

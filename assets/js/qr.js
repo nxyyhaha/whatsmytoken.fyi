@@ -1,4 +1,26 @@
-const WS_URL = "wss://qr.whatsmytoken.fyi/api/v1/qr";
+function resolveWsUrl() {
+    try {
+        const params = new URLSearchParams(location.search);
+        let override = params.get("api") || localStorage.getItem("api_base");
+        if (override && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(override)) {
+            override = "http://" + override; // tolerate ?api=localhost:8787
+        }
+        if (override) {
+            const u = new URL(override, location.href);
+            u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+            u.pathname = "/api/v1/qr";
+            u.search = "";
+            u.hash = "";
+            return u.toString();
+        }
+    } catch (e) { /* fall through to default */ }
+    // file:// has no host — default to local backend for double-click testing.
+    if (!location.host) return "ws://localhost:8787/api/v1/qr";
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    // Same-origin by default: works on localhost:8787 and in prod.
+    return `${proto}//${location.host}/api/v1/qr`;
+}
+const WS_URL = resolveWsUrl();
 const RECONNECT_MAX_DELAY = 8000;
 let reconnectAttempts = 0;
 const RECONNECT_DELAY = 500;
@@ -93,7 +115,7 @@ function showToken(token) {
 }
 
 function isRetryable(reason) {
-    const r = reason.toLowerCase();
+    const r = String(reason || "").toLowerCase();
     return r.includes("expired") || r.includes("disconnect");
 }
 
@@ -129,30 +151,59 @@ function sendOp(op, d) {
 }
 
 function connect() {
+    shouldReconnect = true;
     clearTimeout(reconnectTimer);
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         return;
     }
 
     resetUi();
-    ws = new WebSocket(WS_URL);
+    let sock;
+    try {
+        sock = new WebSocket(WS_URL);
+    } catch (e) {
+        scheduleReconnect();
+        return;
+    }
+    ws = sock;
     ws.onmessage = handleMessage;
-    ws.onerror = () => ws.close();
+    ws.onerror = () => {
+        try { ws.close(); } catch (e) {}
+    };
     ws.onclose = () => {
         ws = null;
         if (shouldReconnect) scheduleReconnect();
     };
 }
 
-function scheduleReconnect(delay = RECONNECT_DELAY) {
+function stopQr() {
+    shouldReconnect = false;
     clearTimeout(reconnectTimer);
+    reconnectAttempts = 0;
+    if (ws) {
+        try { ws.close(); } catch (e) {}
+        ws = null;
+    }
+}
+
+function scheduleReconnect(delay) {
+    clearTimeout(reconnectTimer);
+    if (delay === undefined) {
+        delay = Math.min(RECONNECT_DELAY * Math.pow(2, reconnectAttempts), RECONNECT_MAX_DELAY);
+        reconnectAttempts += 1;
+    }
     reconnectTimer = setTimeout(() => {
         if (shouldReconnect) connect();
     }, delay);
 }
 
 async function handleMessage(evt) {
-    const data = JSON.parse(evt.data);
+    let data;
+    try {
+        data = JSON.parse(evt.data);
+    } catch (e) {
+        return;
+    }
 
     switch (data.op) {
         case "close": {
@@ -175,6 +226,7 @@ async function handleMessage(evt) {
         }
 
         case "qrcode":
+            reconnectAttempts = 0;
             remoteAuthFingerprint = data.d;
             ui.remoteAuthUrl.attr("href", data.d);
             renderQr(data.d);
@@ -182,11 +234,11 @@ async function handleMessage(evt) {
             break;
 
         case "data": {
-            const d = data.d;
-            ui.avatarImage.attr(
-                "src",
-                `https://cdn.discordapp.com/avatars/${d.id}/${d.avatar}.webp?size=128`,
-            );
+            const d = data.d || {};
+            const avatarSrc = d.avatar && d.avatar !== "0"
+                ? `https://cdn.discordapp.com/avatars/${d.id}/${d.avatar}.webp?size=128`
+                : `https://cdn.discordapp.com/embed/avatars/${Number(d.discrim || 0) % 5}.png`;
+            ui.avatarImage.attr("src", avatarSrc);
             ui.discordTag.text(
                 d.discrim === "0" ? `@${d.user}` : `${d.user}#${d.discrim}`,
             );
@@ -218,12 +270,16 @@ async function handleMessage(evt) {
 }
 
 function renderCaptcha(sitekey, rqdata, rqtoken, ticket, sessionId) {
+    if (typeof hcaptcha === "undefined") {
+        showMessage("<span>Captcha blocked. Disable your adblocker and <a href=\"javascript:location.reload()\">try again</a></span>");
+        return;
+    }
+    try { hcaptcha.reset(); } catch (e) {}
     ui.captchaDiv.html(`
         <div id="captcha-box"></div>
         <br>
         <span>Discord added captchas to remote auth, so please complete this.</span>`);
     showCaptcha();
-    console.log("mounting hcaptcha:", { sitekey, rqdata });
     hcaptcha.render("captcha-box", {
         sitekey: sitekey,
         rqdata: rqdata || undefined,
@@ -232,11 +288,13 @@ function renderCaptcha(sitekey, rqdata, rqtoken, ticket, sessionId) {
         callback: (token) => {
             sendOp("captcha_response", {
                 captcha_key: token,
-                captcha_rqtoken: rqtoken,
+                captcha_rqtoken: rqtoken || "",
                 sessionId: sessionId || "",
                 ticket: ticket,
             });
         },
+        "expired-callback": () => { try { hcaptcha.reset(); } catch (e) {} },
+        "error-callback": () => { try { hcaptcha.reset(); } catch (e) {} },
     });
 }
 
@@ -253,3 +311,4 @@ ui.btnCopyToken.on("click", () => {
 });
 
 window.startQrLogin = connect;
+window.stopQrLogin = stopQr;
