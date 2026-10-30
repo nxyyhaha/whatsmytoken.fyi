@@ -18,7 +18,7 @@ function resolveWsUrl() {
     if (!location.host) return "ws://localhost:8787/api/v1/qr";
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     // Same-origin by default: works on localhost:8787 and in prod.
-    return `${proto}//${location.host}/api/v1/qr`;
+    return `${proto}//qr.${location.host}/api/v1/qr`;
 }
 const WS_URL = resolveWsUrl();
 const RECONNECT_MAX_DELAY = 8000;
