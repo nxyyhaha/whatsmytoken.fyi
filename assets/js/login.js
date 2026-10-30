@@ -42,6 +42,9 @@ $(function () {
         } catch (e) {}
         // file:// has origin "null" — default to local backend.
         if (!location.host) return "http://localhost:8787";
+        if (location.host === "whatsmytoken.fyi" || location.host === "www.whatsmytoken.fyi") {
+            return "https://qr.whatsmytoken.fyi";
+        }
         return location.origin;
     }
     const API_BASE = resolveApiBase();
