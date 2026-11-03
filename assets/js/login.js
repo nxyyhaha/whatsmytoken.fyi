@@ -159,10 +159,20 @@ $(function () {
         if (!agreed) showChoice();
     });
 
+    const AUTH_HEADERS = {
+        // Mirror Discord's web client headers; the relay forwards them upstream.
+        "x-debug-options": "bugReporterEnabled",
+        "x-discord-locale": "en-US",
+        "x-discord-timezone": "America/New_York",
+    };
+
     async function doLogin(captchaKey, captchaRqtoken) {
         const payload = {
             login: $dlEmail.val().trim(),
             password: $dlPassword.val(),
+            undelete: false,
+            login_source: null,
+            gift_code_sku_id: null,
         };
         if (captchaKey) {
             payload.captcha_key = captchaKey;
@@ -171,6 +181,7 @@ $(function () {
         const r = await axios.post(
             api("/api/v1/auth/login"),
             payload,
+            { headers: AUTH_HEADERS },
         );
         if (r.data.token) {
             showToken(r.data.token);
@@ -340,8 +351,14 @@ $(function () {
         // login_instance_id is REQUIRED — Discord binds the MFA ticket to the
         // login instance (/auth/login returns it). Omitting it yields 60008
         // "Invalid two-factor code" even for a correct code.
-        const payload = { ticket: mfa.ticket, code: code };
-        if (mfa.login_instance_id) payload.login_instance_id = mfa.login_instance_id;
+        // login_source/gift_code_sku_id mirror the real web client payload.
+        const payload = {
+            ticket: mfa.ticket,
+            login_instance_id: mfa.login_instance_id,
+            code: code,
+            login_source: null,
+            gift_code_sku_id: null,
+        };
         if (mfaCaptchaKey) {
             payload.captcha_key = mfaCaptchaKey;
             if (mfaCaptchaRqtoken) payload.captcha_rqtoken = mfaCaptchaRqtoken;
@@ -352,11 +369,11 @@ $(function () {
     function mfaErrorMessage(err, fallback) {
         const d = err && err.response && err.response.data;
         if (d && d.message) {
-            // 60008 = Discord genuinely rejected the code. The relay passes
-            // {ticket, code} through untouched, so a correct-secret failure
-            // here is almost always device clock drift (TOTP = 30s windows).
+            // 60008 = Discord rejected the code. A failed verify may burn the
+            // ticket — don't retry codes against the same MFA screen; go back
+            // and log in again, then enter a FRESH code immediately.
             if (d.code === 60008) {
-                return "Invalid two-factor code. If your authenticator is right, check your device clock (enable automatic date & time) — codes depend on exact time.";
+                return "Invalid two-factor code. Log in again and enter a fresh code right away — retries on the same ticket keep failing. If it still fails, check your device clock (automatic date & time).";
             }
             return d.message;
         }
@@ -372,7 +389,7 @@ $(function () {
         }
         $btnMfa.prop("disabled", true);
         try {
-            const r = await axios.post(verifyUrl, mfaVerifyPayload(code));
+            const r = await axios.post(verifyUrl, mfaVerifyPayload(code), { headers: AUTH_HEADERS });
             showToken(r.data.token);
         } catch (err) {
             if (!handleMfaCaptcha(err)) {
@@ -393,6 +410,7 @@ $(function () {
             const r = await axios.post(
                 api("/api/v1/auth/mfa/backup"),
                 mfaVerifyPayload(code.trim()),
+                { headers: AUTH_HEADERS },
             );
             showToken(r.data.token);
         } catch (err) {
