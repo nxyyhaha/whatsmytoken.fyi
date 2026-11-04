@@ -19,6 +19,11 @@ $(function () {
     const $btnAgree = $("#btn-agree");
     const $countdown = $("#agree-countdown");
     const $warningModal = $("#warning-modal");
+    const $backBtn = $("#btn-back");
+
+    // Static instructions markup inside #scan-info ("Scan the QR code...").
+    // showChoice() restores this after the bookmarklet view overwrite it.
+    const scanInfoDefault = $("#scan-info").html();
     const $tokenDiv = $("#token-div");
     const $tokenValue = $("#token-value");
     const $btnCopyToken = $("#btn-copy-token");
@@ -59,7 +64,32 @@ $(function () {
         $mfaDiv.hide();
         $tokenDiv.hide();
         $dlCaptcha.html("");
+        // The client-side (bookmarklet) view injects HTML into #scan-info;
+        // clear it so a later QR run doesn't re-show stale content next to
+        // the QR code (qr.js un-hides #scan-info without wiping it).
+        // Restore the ORIGINAL static content instead of blanking — the
+        // markup contains the default "Scan the QR code..." instructions.
+        $("#scan-info").html(scanInfoDefault);
         $choice.show();
+    }
+
+    // Leaving any active flow: stop the QR socket, wipe secrets from the DOM
+    // (password / token / MFA), and return to the choice screen.
+    function goToChoice() {
+        if (typeof window.stopQrLogin === "function") window.stopQrLogin();
+        clearInterval(agreeTimer);
+        mfa = null;
+        mfaCaptchaKey = null;
+        mfaCaptchaRqtoken = null;
+        $dlPassword.val("");
+        $mfaCode.val("");
+        $tokenValue.val("");
+        $dlError.hide();
+        $mfaError.hide();
+        $dlCaptcha.html("");
+        $mfaCaptcha.hide().html("");
+        $backBtn.hide();
+        showChoice();
     }
 
     function showError($el, msg) {
@@ -81,6 +111,7 @@ $(function () {
         $tokenDiv.show();
         $tokenValue.val(token);
         $copyStatus.hide();
+        $backBtn.show();
         feather.replace();
     }
 
@@ -92,9 +123,17 @@ $(function () {
     });
 
     $("#btn-qr").on("click", () => {
-        $choice.hide();
-        if (typeof window.startQrLogin === "function") window.startQrLogin();
-        else toast("QR script not loaded. Reload and try again.", "warning");
+        // TEMPORARY: QR login disabled — Discord's remote-auth captcha
+        // enforcement now rejects solves with 'invalid-response' even from
+        // Discord's own site on flagged networks. The full flow (qr.js +
+        // server QR gateway) is intact; re-enable by restoring the
+        // window.startQrLogin() call below.
+        $("#qr-unavailable-modal").modal("show");
+        // $choice.hide();
+        // $backBtn.show();
+        // if (typeof feather !== "undefined") feather.replace();
+        // if (typeof window.startQrLogin === "function") window.startQrLogin();
+        // else toast("QR script not loaded. Reload and try again.", "warning");
     });
 
     $("#btn-client").on("click", () => {
@@ -102,6 +141,7 @@ $(function () {
         $directDiv.hide();
         $mfaDiv.hide();
         $tokenDiv.hide();
+        $backBtn.show();
         const bookmarklet = `javascript:(function(){var s=document.createElement('script');s.src='https://whatsmytoken.fyi/assets/js/client.js?v='+Date.now();document.body.appendChild(s);})();`;
         navigator.clipboard.writeText(bookmarklet).then(() => {
             $("#scan-info").html(
@@ -114,13 +154,13 @@ $(function () {
                 `<li>Click the bookmark to grab the token from localStorage</li>` +
                 `</ol>` +
                 `<div style="background:#1a1d23;border:1px solid #2c2f33;border-radius:4px;padding:1rem;margin-bottom:1rem;word-break:break-all;white-space:pre-wrap;font-family:monospace;font-size:0.85rem;">${bookmarklet}</div>` +
-                `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="javascript:location.reload()">Back to choice</button>`
+                `<button type="button" class="btn btn-outline-secondary btn-sm back-to-choice">Back to choice</button>`
             ).show();
         }).catch(() => {
             $("#scan-info").html(
                 `<p class="text-danger mb-2">Couldn't copy to clipboard. Copy manually below:</p>` +
                 `<div style="background:#1a1d23;border:1px solid #2c2f33;border-radius:4px;padding:1rem;margin-bottom:1rem;word-break:break-all;white-space:pre-wrap;font-family:monospace;font-size:0.85rem;">${bookmarklet}</div>` +
-                `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="javascript:location.reload()">Back to choice</button>`
+                `<button type="button" class="btn btn-outline-secondary btn-sm back-to-choice">Back to choice</button>`
             ).show();
         });
     });
@@ -151,6 +191,7 @@ $(function () {
         agreed = true;
         $warningModal.modal("hide");
         $directDiv.show();
+        $backBtn.show();
         $dlEmail.trigger("focus");
     });
 
@@ -312,6 +353,7 @@ $(function () {
         }
         $mfaDiv.show();
         $mfaCode.trigger("focus");
+        $backBtn.show();
     }
 
     function mountMfaCaptcha(sitekey, rqdata, rqtoken) {
@@ -421,6 +463,11 @@ $(function () {
             $btnMfaBackup.prop("disabled", false);
         }
     });
+
+    $backBtn.on("click", () => goToChoice());
+
+    // In-page "Back to choice" buttons injected into the bookmarklet screen.
+    $("#scan-info").on("click", ".back-to-choice", () => goToChoice());
 
     showChoice();
 });
